@@ -29,6 +29,13 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
     print("Warning: Anthropic library not available. Anthropic provider will be disabled.")
+try:
+    import ollama
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    OLLAMA_AVAILABLE = False
+    print("Warning: ollama library not available. Anthropic provider will be disabled.")
+
 
 class LLMProvider(ABC):
     """Abstract base class for LLM providers"""
@@ -299,6 +306,41 @@ class AnthropicProvider(LLMProvider):
 
             elif chunk.type == "message_stop":
                 break
+class OllamaProvider(LLMProvider):
+    """OpenAI provider implementation"""
+
+    def __init__(self, api_key: str=None, model: str = "gpt-4o"):
+        self.client = ollama.Client()
+        self.model = model
+
+    def chat(self, messages: List[Dict[str, str]], stream: bool = False, **kwargs) -> Any:
+        """Send chat messages to OpenAI"""
+        try:
+            response = self.client.chat(
+                model=self.model,
+                messages=messages,
+                stream=stream,
+                **kwargs
+            )
+
+            if stream:
+                return self._stream_response(response)
+            else:
+                return response.choices[0].message.content
+
+        except Exception as e:
+            print(f"OpenAI API error: {e}")
+            return None
+
+    def chat_stream(self, messages: List[Dict[str, str]], **kwargs) -> Iterator[str]:
+        """Stream chat response from OpenAI"""
+        return self.chat(messages, stream=True, **kwargs)
+
+    def _stream_response(self, response) -> Iterator[str]:
+        """Process streaming response from OpenAI"""
+        for chunk in response:
+            if chunk.message.content is not None:
+                yield chunk.message.content
 
 class LLMClient:
     """Unified LLM client that supports multiple providers"""
@@ -307,6 +349,7 @@ class LLMClient:
         'openai': OpenAIProvider,
         'google': GoogleProvider,
         'anthropic': AnthropicProvider,
+        'ollama': OllamaProvider
     }
 
     def __init__(self, provider: str = 'google', model: str = None, api_key: str = None):
@@ -319,7 +362,8 @@ class LLMClient:
         availability_map = {
             'openai': OPENAI_AVAILABLE,
             'google': GOOGLE_AVAILABLE,
-            'anthropic': ANTHROPIC_AVAILABLE
+            'anthropic': ANTHROPIC_AVAILABLE,
+            'ollama': OLLAMA_AVAILABLE
         }
 
         if not availability_map[self.provider_name]:
@@ -391,7 +435,9 @@ class LLMClient:
         availability_map = {
             'openai': OPENAI_AVAILABLE,
             'google': GOOGLE_AVAILABLE,
-            'anthropic': ANTHROPIC_AVAILABLE
+            'anthropic': ANTHROPIC_AVAILABLE,
+            'ollama': OLLAMA_AVAILABLE
+
         }
         return [provider for provider, available in availability_map.items() if available]
 
@@ -410,4 +456,5 @@ class LLMClient:
 # Convenience function for backwards compatibility
 def create_llm_client(backend: str = 'google', model: str = None, api_key: str = None) -> LLMClient:
     """Create an LLM client with the specified backend"""
+
     return LLMClient(provider=backend, model=model, api_key=api_key)
